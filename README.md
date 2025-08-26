@@ -61,7 +61,7 @@ The system uses a pre-trained Caffe model with the following characteristics:
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/ShadowstrikeSupremacy/chromatic-revival
    cd Colorize-Black-White-Image-main
    ```
 
