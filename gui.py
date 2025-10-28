@@ -15,16 +15,15 @@ import cv2 as cv
 import numpy as np
 import os
 import threading
-import time
 from pathlib import Path
 import logging
-from typing import Optional, Tuple
+from typing import Tuple
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 try:
-from .colorizer import ImageColorizer
+    from .colorizer import ImageColorizer
 except ImportError:
     from colorizer import ImageColorizer
 
@@ -34,25 +33,15 @@ logger = logging.getLogger(__name__)
 
 
 class ModernColorizationGUI:
-    """
-    GUI for Image Colorization
-    
-    This class provides a graphical user interface for the image colorization system.
-    Features include drag and drop, real-time feedback, and quality metrics.
-    """
-    
+    """GUI for Image Colorization."""
+
     def __init__(self, root: tk.Tk):
-        """
-        Initialize the GUI.
-        
-        Args:
-            root (tk.Tk): Root Tkinter window
-        """
+        """Initialize the GUI."""
         self.root = root
         self.root.title("Advanced Image Colorization System")
         self.root.geometry("1200x800")
         self.root.configure(bg='#f0f0f0')
-        
+
         # Initialize colorizer
         try:
             self.colorizer = ImageColorizer()
@@ -60,385 +49,346 @@ class ModernColorizationGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load model: {str(e)}")
             self.model_loaded = False
-        
+
         # Variables
         self.original_image = None
         self.colorized_image = None
         self.original_path = None
         self.processing = False
-        
+
         # Setup GUI
         self._setup_styles()
         self._create_widgets()
         self._setup_layout()
-        
+
         logger.info("GUI initialized successfully")
-    
+
     def _setup_styles(self):
         """Configure modern styling for the GUI."""
         style = ttk.Style()
-        style.theme_use('clam')  # Using clam theme - looks pretty good
-        
-        # Configure colors - trying to make it look nice
+        style.theme_use('clam')
         style.configure('Title.TLabel', font=('Arial', 16, 'bold'), foreground='#2c3e50')
         style.configure('Header.TLabel', font=('Arial', 12, 'bold'), foreground='#34495e')
         style.configure('Info.TLabel', font=('Arial', 10), foreground='#7f8c8d')
-        
-        # Configure buttons - different colors for different actions
-        style.configure('Primary.TButton', 
-                      font=('Arial', 10, 'bold'),
-                      background='#3498db',
-                      foreground='white')
-        style.configure('Success.TButton',
-                      font=('Arial', 10, 'bold'),
-                      background='#27ae60',
-                      foreground='white')
-        style.configure('Warning.TButton',
-                      font=('Arial', 10, 'bold'),
-                      background='#f39c12',
-                      foreground='white')
-    
+        style.configure('Primary.TButton', font=('Arial', 10, 'bold'), background='#3498db', foreground='white')
+        style.configure('Success.TButton', font=('Arial', 10, 'bold'), background='#27ae60', foreground='white')
+        style.configure('Warning.TButton', font=('Arial', 10, 'bold'), background='#f39c12', foreground='white')
+
     def _create_widgets(self):
         """Create all GUI widgets."""
-        # Main container
         self.main_frame = ttk.Frame(self.root, padding="10")
-        
-        # Title
-        self.title_label = ttk.Label(
-            self.main_frame,
-            text="Advanced Image Colorization System",
-            style='Title.TLabel'
-        )
-        
-        # Control panel
+
+        self.title_label = ttk.Label(self.main_frame, text="Advanced Image Colorization System", style='Title.TLabel')
         self.control_frame = ttk.LabelFrame(self.main_frame, text="Controls", padding="10")
-        
-        # File selection
+
         self.file_frame = ttk.Frame(self.control_frame)
         self.file_label = ttk.Label(self.file_frame, text="Select Image:", style='Header.TLabel')
-        self.file_button = ttk.Button(
-            self.file_frame,
-            text="Browse",
-            command=self._browse_file,
-            style='Primary.TButton'
-        )
+        self.file_button = ttk.Button(self.file_frame, text="Browse", command=self._browse_file, style='Primary.TButton')
         self.file_path_var = tk.StringVar(value="No file selected")
         self.file_path_label = ttk.Label(self.file_frame, textvariable=self.file_path_var, style='Info.TLabel')
-        
-        # Processing buttons
+
         self.process_frame = ttk.Frame(self.control_frame)
-        self.process_button = ttk.Button(
-            self.process_frame,
-            text="Colorize Image",
-            command=self._process_image,
-            style='Success.TButton',
-            state='disabled'
-        )
-        self.batch_button = ttk.Button(
-            self.process_frame,
-            text="Batch Process",
-            command=self._batch_process,
-            style='Warning.TButton'
-        )
-        
-        # Progress bar
+        self.process_button = ttk.Button(self.process_frame, text="Colorize Image",
+                                         command=self._process_image, style='Success.TButton', state='disabled')
+        self.batch_button = ttk.Button(self.process_frame, text="Batch Process",
+                                       command=self._batch_process, style='Warning.TButton')
+
         self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(
-            self.control_frame,
-            variable=self.progress_var,
-            maximum=100
-        )
+        self.progress_bar = ttk.Progressbar(self.control_frame, variable=self.progress_var, maximum=100)
         self.progress_label = ttk.Label(self.control_frame, text="", style='Info.TLabel')
-        
-        # Image display area
+
         self.image_frame = ttk.LabelFrame(self.main_frame, text="Image Preview", padding="10")
-        
-        # Original image
+
         self.original_frame = ttk.Frame(self.image_frame)
         self.original_label = ttk.Label(self.original_frame, text="Original Image", style='Header.TLabel')
         self.original_canvas = tk.Canvas(self.original_frame, width=400, height=300, bg='white')
-        
-        # Colorized image
+
         self.colorized_frame = ttk.Frame(self.image_frame)
         self.colorized_label = ttk.Label(self.colorized_frame, text="Colorized Image", style='Header.TLabel')
         self.colorized_canvas = tk.Canvas(self.colorized_frame, width=400, height=300, bg='white')
-        
-        # Metrics frame
+
         self.metrics_frame = ttk.LabelFrame(self.main_frame, text="Quality Metrics", padding="10")
         self.metrics_text = tk.Text(self.metrics_frame, height=6, width=50, font=('Courier', 9))
-        
-        # Status bar
+
         self.status_var = tk.StringVar(value="Ready")
         self.status_bar = ttk.Label(self.root, textvariable=self.status_var, relief='sunken')
-    
+
     def _setup_layout(self):
-        """Setup the layout of all widgets."""
-        # Main layout
+        """Setup widget layout."""
         self.main_frame.pack(fill='both', expand=True, padx=10, pady=10)
-        
-        # Title
         self.title_label.pack(pady=(0, 20))
-        
-        # Control panel
         self.control_frame.pack(fill='x', pady=(0, 20))
-        
-        # File selection
         self.file_frame.pack(fill='x', pady=(0, 10))
         self.file_label.pack(side='left', padx=(0, 10))
         self.file_button.pack(side='left', padx=(0, 10))
         self.file_path_label.pack(side='left')
-        
-        # Processing buttons
         self.process_frame.pack(fill='x', pady=(0, 10))
         self.process_button.pack(side='left', padx=(0, 10))
         self.batch_button.pack(side='left')
-        
-        # Progress
         self.progress_bar.pack(fill='x', pady=(0, 5))
         self.progress_label.pack()
-        
-        # Image display
         self.image_frame.pack(fill='both', expand=True, pady=(0, 20))
-        
-        # Image canvases
         self.original_frame.pack(side='left', padx=(0, 10))
         self.original_label.pack()
         self.original_canvas.pack()
-        
         self.colorized_frame.pack(side='right', padx=(10, 0))
         self.colorized_label.pack()
         self.colorized_canvas.pack()
-        
-        # Metrics
         self.metrics_frame.pack(fill='x')
         self.metrics_text.pack()
-        
-        # Status bar
         self.status_bar.pack(side='bottom', fill='x')
-    
+
     def _browse_file(self):
-        """Open file dialog to select an image."""
+        """Browse and select an image."""
         file_path = filedialog.askopenfilename(
             title="Select Image",
-            filetypes=[
-                ("Image files", "*.jpg *.jpeg *.png *.bmp *.tiff"),
-                ("All files", "*.*")
-            ]
+            filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp *.tiff"), ("All files", "*.*")]
         )
-        
+
         if file_path:
             self.original_path = file_path
             self.file_path_var.set(os.path.basename(file_path))
             self._load_original_image()
             self.process_button.config(state='normal')
             self.status_var.set(f"Loaded: {os.path.basename(file_path)}")
-    
+
+    def _resize_image(self, image: Image.Image, max_size: Tuple[int, int] = (400, 300)) -> Image.Image:
+        """Resize image while maintaining aspect ratio."""
+        ratio = min(max_size[0] / image.size[0], max_size[1] / image.size[1])
+        new_size = tuple(int(dim * ratio) for dim in image.size)
+        return image.resize(new_size, Image.Resampling.LANCZOS)
+
+    def _update_canvas(self, canvas: tk.Canvas, image: Image.Image):
+        """Update canvas with new image."""
+        photo = ImageTk.PhotoImage(image)
+        canvas.delete("all")
+        canvas.create_image(
+            canvas.winfo_width() // 2,
+            canvas.winfo_height() // 2,
+            image=photo,
+            anchor="center"
+        )
+        canvas.image = photo  # Keep a reference to prevent garbage collection
+
     def _load_original_image(self):
         """Load and display the original image."""
         try:
-            # Load image
-            image = cv.imread(self.original_path)
-            if image is None:
-                raise ValueError("Could not load image")
-            
-            self.original_image = image
-            
+            # Load image using PIL
+            image = Image.open(self.original_path)
+            self.original_image = image.copy()  # Store original for processing
+
             # Resize for display
-            display_image = self._resize_for_display(image, (400, 300))
-            
-            # Convert to PIL and display
-            display_image_rgb = cv.cvtColor(display_image, cv.COLOR_BGR2RGB)
-            pil_image = Image.fromarray(display_image_rgb)
-            photo = ImageTk.PhotoImage(pil_image)
-            
-            # Update canvas
-            self.original_canvas.delete("all")
-            self.original_canvas.create_image(200, 150, image=photo)
-            self.original_canvas.image = photo  # Keep reference
-            
-            # Clear colorized image
+            display_image = self._resize_image(image)
+            self._update_canvas(self.original_canvas, display_image)
+
+            # Clear colorized display and metrics
             self.colorized_canvas.delete("all")
-            self.colorized_image = None
+            self.metrics_text.delete(1.0, tk.END)
+            self.progress_var.set(0)
+            self.progress_label.config(text="")
             
+            logger.info(f"Successfully loaded image: {self.original_path}")
+            self.status_var.set("Image loaded successfully")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load image: {str(e)}")
             logger.error(f"Error loading image: {str(e)}")
-    
-    def _resize_for_display(self, image: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
-        """Resize image for display while maintaining aspect ratio."""
-        h, w = image.shape[:2]
-        target_w, target_h = size
-        
-        # Calculate scaling factor
-        scale = min(target_w / w, target_h / h)
-        new_w, new_h = int(w * scale), int(h * scale)
-        
-        return cv.resize(image, (new_w, new_h))
-    
-    def _process_image(self):
-        """Process the selected image in a separate thread."""
-        if not self.model_loaded or self.original_image is None:
-            return
-        
-        if self.processing:
-            return
-        
-        self.processing = True
-        self.process_button.config(state='disabled')
-        self.progress_var.set(0)
-        self.progress_label.config(text="Processing...")
-        self.status_var.set("Processing image...")
-        
-        # Start processing in separate thread
-        thread = threading.Thread(target=self._process_image_thread)
-        thread.daemon = True
-        thread.start()
-    
-    def _process_image_thread(self):
-        """Process image in background thread."""
+            messagebox.showerror("Error", f"Failed to load image: {str(e)}")
+            self.status_var.set("Error loading image")
+
+    def _cv2_to_pil(self, cv_image: np.ndarray) -> Image.Image:
+        """Convert OpenCV image to PIL Image."""
+        if cv_image.shape[2] == 3:  # If BGR
+            cv_image = cv.cvtColor(cv_image, cv.COLOR_BGR2RGB)
+        return Image.fromarray(cv_image)
+
+    def _pil_to_cv2(self, pil_image: Image.Image) -> np.ndarray:
+        """Convert PIL Image to OpenCV format."""
+        # Convert PIL image to RGB numpy array
+        rgb_image = np.array(pil_image.convert('RGB'))
+        # Convert RGB to BGR
+        bgr_image = cv.cvtColor(rgb_image, cv.COLOR_RGB2BGR)
+        return bgr_image
+
+    def _update_metrics(self, original_cv: np.ndarray, colorized_cv: np.ndarray):
+        """Calculate and display quality metrics."""
         try:
-            # Update progress
-            self.root.after(0, lambda: self.progress_var.set(25))
-            self.root.after(0, lambda: self.progress_label.config(text="Loading model..."))
-            
-            # Colorize image
-            self.root.after(0, lambda: self.progress_var.set(50))
-            self.root.after(0, lambda: self.progress_label.config(text="Colorizing..."))
-            
-            colorized = self.colorizer.colorize_image(self.original_image)
-            self.colorized_image = colorized
-            
-            # Update progress
-            self.root.after(0, lambda: self.progress_var.set(75))
-            self.root.after(0, lambda: self.progress_label.config(text="Displaying result..."))
-            
-            # Display result
-            self.root.after(0, self._display_colorized_image)
-            
-            # Calculate metrics
-            self.root.after(0, lambda: self.progress_var.set(90))
-            self.root.after(0, lambda: self.progress_label.config(text="Calculating metrics..."))
-            
-            metrics = self.colorizer.evaluate_colorization(self.original_image, colorized)
-            self.root.after(0, lambda: self._display_metrics(metrics))
-            
-            # Complete
-            self.root.after(0, lambda: self.progress_var.set(100))
-            self.root.after(0, lambda: self.progress_label.config(text="Complete!"))
-            self.root.after(0, lambda: self.status_var.set("Processing complete"))
-            
-        except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
-            logger.error(f"Processing error: {str(e)}")
-        
-        finally:
-            self.processing = False
-            self.root.after(0, lambda: self.process_button.config(state='normal'))
-    
-    def _display_colorized_image(self):
-        """Display the colorized image."""
-        if self.colorized_image is None:
-            return
-        
-        try:
-            # Resize for display
-            display_image = self._resize_for_display(self.colorized_image, (400, 300))
-            
-            # Convert to PIL and display
-            display_image_rgb = cv.cvtColor(display_image, cv.COLOR_BGR2RGB)
-            pil_image = Image.fromarray(display_image_rgb)
-            photo = ImageTk.PhotoImage(pil_image)
-            
-            # Update canvas
-            self.colorized_canvas.delete("all")
-            self.colorized_canvas.create_image(200, 150, image=photo)
-            self.colorized_canvas.image = photo  # Keep reference
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to display colorized image: {str(e)}")
-            logger.error(f"Display error: {str(e)}")
-    
-    def _display_metrics(self, metrics: dict):
-        """Display quality metrics."""
-        self.metrics_text.delete(1.0, tk.END)
-        
-        metrics_text = f"""Quality Metrics:
-        
+            # Calculate metrics using the colorizer's evaluation method
+            metrics = self.colorizer.evaluate_colorization(original_cv, colorized_cv)
+
+            # Clear previous metrics
+            self.metrics_text.delete(1.0, tk.END)
+
+            # Display metrics with formatting
+            metrics_text = f"""Quality Metrics:
+
 SSIM (Structural Similarity Index): {metrics['ssim']:.4f}
 PSNR (Peak Signal-to-Noise Ratio): {metrics['psnr']:.2f} dB
 Colorfulness Score: {metrics['colorfulness']:.2f}
-
-Interpretation:
-- SSIM: Higher is better (0-1 scale)
-- PSNR: Higher is better (typically 20-40 dB is good)
-- Colorfulness: Higher indicates more vibrant colors
 """
+            self.metrics_text.insert(tk.END, metrics_text)
+
+        except Exception as e:
+            logger.error(f"Error calculating metrics: {str(e)}")
+            self.metrics_text.delete(1.0, tk.END)
+            self.metrics_text.insert(tk.END, "Error calculating metrics")
+
+        except Exception as e:
+            logger.error(f"Error calculating metrics: {str(e)}")
+            self.metrics_text.insert(tk.END, f"Error calculating metrics: {str(e)}")
+
+    def _display_color_histograms(self, original: np.ndarray, colorized: np.ndarray):
+        """Display color histograms comparison."""
+        # Create a new window for histograms
+        histogram_window = tk.Toplevel(self.root)
+        histogram_window.title("Color Histograms Comparison")
+        histogram_window.geometry("800x400")
+
+        # Create figure with subplots
+        fig = Figure(figsize=(10, 4))
         
-        self.metrics_text.insert(1.0, metrics_text)
-    
+        # Plot original image histogram
+        ax1 = fig.add_subplot(121)
+        self._plot_color_histogram(original, ax1, "Original Image")
+        
+        # Plot colorized image histogram
+        ax2 = fig.add_subplot(122)
+        self._plot_color_histogram(colorized, ax2, "Colorized Image")
+
+        # Add the plot to the window
+        canvas = FigureCanvasTkAgg(fig, master=histogram_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    def _plot_color_histogram(self, image: np.ndarray, ax, title: str):
+        """Plot color histogram for a single image."""
+        colors = ('b', 'g', 'r')
+        for i, color in enumerate(colors):
+            hist = cv.calcHist([image], [i], None, [256], [0, 256])
+            ax.plot(hist, color=color, alpha=0.7)
+        ax.set_xlim([0, 256])
+        ax.set_title(title)
+        ax.grid(True, alpha=0.3)
+
+    def _process_image(self):
+        """Process single image colorization."""
+        if not self.original_image or not self.model_loaded:
+            messagebox.showerror("Error", "Please load an image first and ensure the model is loaded.")
+            return
+
+        def process():
+            try:
+                # Update UI
+                self.process_button.config(state='disabled')
+                self.progress_var.set(0)
+                self.progress_label.config(text="Processing...")
+                self.status_var.set("Colorizing image...")
+
+                # Convert PIL to OpenCV format
+                cv_image = self._pil_to_cv2(self.original_image)
+
+                # Process image
+                colorized = self.colorizer.colorize_image(cv_image)
+                
+                # Convert back to PIL and display
+                self.colorized_image = self._cv2_to_pil(colorized)
+                display_image = self._resize_image(self.colorized_image)
+                self._update_canvas(self.colorized_canvas, display_image)
+
+                # Create grayscale version for metrics comparison
+                original_gray = cv.cvtColor(cv_image, cv.COLOR_BGR2GRAY)
+                original_gray_3ch = cv.cvtColor(original_gray, cv.COLOR_GRAY2BGR)
+                
+                # Calculate and display quality metrics
+                self._update_metrics(original_gray_3ch, colorized)
+
+                # Update UI
+                self.progress_var.set(100)
+                self.progress_label.config(text="Complete!")
+                self.status_var.set("Colorization complete")
+
+                # Save the result
+                output_path = os.path.join("output", "colorized_" + os.path.basename(self.original_path))
+                os.makedirs("output", exist_ok=True)
+                self.colorized_image.save(output_path)
+                logger.info(f"Saved colorized image to: {output_path}")
+
+            except Exception as e:
+                logger.error(f"Error during colorization: {str(e)}")
+                messagebox.showerror("Error", f"Failed to colorize image: {str(e)}")
+                self.status_var.set("Error during colorization")
+            finally:
+                self.process_button.config(state='normal')
+
+        # Run processing in a separate thread
+        threading.Thread(target=process, daemon=True).start()
+
     def _batch_process(self):
-        """Open batch processing dialog."""
+        """Batch process multiple images."""
+        if not self.model_loaded:
+            messagebox.showerror("Error", "Please ensure the model is loaded first.")
+            return
+
+        # Select input directory
         input_dir = filedialog.askdirectory(title="Select Input Directory")
         if not input_dir:
             return
-        
+
+        # Select output directory
         output_dir = filedialog.askdirectory(title="Select Output Directory")
         if not output_dir:
             return
-        
-        # Get all image files
-        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff'}
-        image_files = []
-        
-        for file in os.listdir(input_dir):
-            if Path(file).suffix.lower() in image_extensions:
-                image_files.append(os.path.join(input_dir, file))
-        
-        if not image_files:
-            messagebox.showwarning("Warning", "No image files found in selected directory")
-            return
-        
-        # Confirm batch processing
-        result = messagebox.askyesno(
-            "Batch Processing",
-            f"Process {len(image_files)} images?\nThis may take several minutes."
-        )
-        
-        if result:
-            self._start_batch_processing(image_files, output_dir)
-    
-    def _start_batch_processing(self, image_files: list, output_dir: str):
-        """Start batch processing in background thread."""
-        thread = threading.Thread(
-            target=self._batch_process_thread,
-            args=(image_files, output_dir)
-        )
-        thread.daemon = True
-        thread.start()
-    
-    def _batch_process_thread(self, image_files: list, output_dir: str):
-        """Process batch of images in background."""
-        try:
-            self.root.after(0, lambda: self.status_var.set("Starting batch processing..."))
-            
-            results = self.colorizer.batch_colorize(image_files, output_dir)
-            
-            # Show results
-            message = f"""Batch processing complete!
 
-Processed: {results['processed']} images
-Failed: {results['failed']} images
-Total time: {results['total_time']:.2f} seconds
-Average time per image: {results['total_time']/results['processed']:.2f} seconds
+        def process_batch():
+            try:
+                # Get list of image files
+                image_files = [f for f in os.listdir(input_dir) 
+                             if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
+                total_files = len(image_files)
 
-Output saved to: {output_dir}"""
+                if total_files == 0:
+                    messagebox.showinfo("Info", "No image files found in the selected directory.")
+                    return
 
-            self.root.after(0, lambda: messagebox.showinfo("Batch Complete", message))
-            self.root.after(0, lambda: self.status_var.set("Batch processing complete"))
-            
-        except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Batch processing failed: {str(e)}"))
-            logger.error(f"Batch processing error: {str(e)}")
+                # Process each image
+                for i, filename in enumerate(image_files, 1):
+                    try:
+                        # Update progress
+                        progress = (i - 1) / total_files * 100
+                        self.progress_var.set(progress)
+                        self.progress_label.config(text=f"Processing {i}/{total_files}: {filename}")
+                        self.status_var.set(f"Processing batch: {i}/{total_files}")
+
+                        # Load and process image
+                        input_path = os.path.join(input_dir, filename)
+                        image = cv.imread(input_path)
+                        if image is None:
+                            logger.warning(f"Failed to load image: {filename}")
+                            continue
+
+                        # Colorize
+                        colorized = self.colorizer.colorize_image(image)
+
+                        # Save result
+                        output_path = os.path.join(output_dir, "colorized_" + filename)
+                        cv.imwrite(output_path, colorized)
+                        logger.info(f"Processed and saved: {output_path}")
+
+                    except Exception as e:
+                        logger.error(f"Error processing {filename}: {str(e)}")
+                        continue
+
+                # Complete
+                self.progress_var.set(100)
+                self.progress_label.config(text="Batch processing complete!")
+                self.status_var.set("Batch processing complete")
+                messagebox.showinfo("Success", f"Successfully processed {total_files} images")
+
+            except Exception as e:
+                logger.error(f"Error during batch processing: {str(e)}")
+                messagebox.showerror("Error", f"Batch processing failed: {str(e)}")
+                self.status_var.set("Error during batch processing")
+
+        # Run batch processing in a separate thread
+        threading.Thread(target=process_batch, daemon=True).start()
 
 
 def main():
@@ -449,4 +399,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()
