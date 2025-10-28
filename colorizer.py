@@ -221,31 +221,42 @@ class ImageColorizer:
         Evaluate the quality of colorization using various metrics.
         
         Args:
-            original (np.ndarray): Original grayscale image
+            original (np.ndarray): Original image
             colorized (np.ndarray): Colorized image
             
         Returns:
             Dict[str, float]: Evaluation metrics
         """
-        # Convert to grayscale for comparison
-        original_gray = cv.cvtColor(original, cv.COLOR_BGR2GRAY)
-        colorized_gray = cv.cvtColor(colorized, cv.COLOR_BGR2GRAY)
-        
-        # Calculate metrics
-        ssim_score = ssim(original_gray, colorized_gray)
-        psnr_score = psnr(original_gray, colorized_gray)
-        
-        # Calculate colorfulness (simplified)
-        colorized_lab = cv.cvtColor(colorized, cv.COLOR_BGR2Lab)
-        a_channel = colorized_lab[:, :, 1]
-        b_channel = colorized_lab[:, :, 2]
-        colorfulness = np.sqrt(np.mean(a_channel**2) + np.mean(b_channel**2))
-        
-        return {
-            'ssim': ssim_score,
-            'psnr': psnr_score,
-            'colorfulness': colorfulness
-        }
+        try:
+            # Ensure both images have the same size
+            if original.shape != colorized.shape:
+                colorized = cv.resize(colorized, (original.shape[1], original.shape[0]))
+
+            # Calculate SSIM
+            ssim_score = ssim(original, colorized, channel_axis=2, data_range=255)
+            
+            # Calculate PSNR
+            psnr_score = psnr(original, colorized, data_range=255)
+            
+            # Calculate colorfulness using the ab channels
+            lab_img = cv.cvtColor(colorized, cv.COLOR_BGR2Lab)
+            a = lab_img[:,:,1]
+            b = lab_img[:,:,2]
+            a_std = np.std(a)
+            b_std = np.std(b)
+            a_mean = np.mean(a)
+            b_mean = np.mean(b)
+            colorfulness = np.sqrt((a_std ** 2 + b_std ** 2) + 0.3 * np.sqrt(a_mean ** 2 + b_mean ** 2))
+            
+            return {
+                'ssim': float(ssim_score),
+                'psnr': float(psnr_score),
+                'colorfulness': float(colorfulness)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error calculating metrics: {str(e)}")
+            raise
     
     def create_comparison_plot(self, original: np.ndarray, colorized: np.ndarray, 
                               save_path: Optional[str] = None) -> None:
