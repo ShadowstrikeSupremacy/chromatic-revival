@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+output/
+demo_batch_output/
+*.log
+temp/
+INTERVIEW_PREP.md
+
+# Image files (except specific ones needed)
+*.jpg
+*.jpeg
+*.png
+!models/*.caffemodel
+!pts_in_hull.npy
+
+# Keep model files
+!models/colorization_release_v2.caffemodel
+!models/colorization_deploy_v2.prototxt
