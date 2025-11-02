@@ -1,1 +1,1 @@
-# download the model file from [here]([https://drive.google.com/file/d/14YmdCfcMOgfJEBNJEl6Xj1SB-RccgJBO/view?usp=sharing](https://www.dropbox.com/scl/fi/d8zffur3wmd4wet58dp9x/colorization_release_v2.caffemodel?rlkey=iippu6vtsrox3pxkeohcuh4oy&e=1&dl=0)) and add them to this folder in order to run this project.
+# download the model file from [here](https://www.dropbox.com/scl/fi/d8zffur3wmd4wet58dp9x/colorization_release_v2.caffemodel?rlkey=iippu6vtsrox3pxkeohcuh4oy&e=1&dl=0) and add them to this folder in order to run this project.
