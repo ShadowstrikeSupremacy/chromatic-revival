@@ -36,6 +36,14 @@ ENV/
 Thumbs.db
 
 # Project specific
+INTERVIEW_PREP.md
 output/
+demo_batch_output/
 *.log
-temp/ 
+temp/
+
+# Large model binaries - keep out of Git (use Git LFS or download separately)
+models/*.caffemodel
+
+# Keep small model/support files in repo
+pts_in_hull.npy
