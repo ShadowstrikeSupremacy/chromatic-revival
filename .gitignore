@@ -42,13 +42,11 @@ demo_batch_output/
 temp/
 INTERVIEW_PREP.md
 
-# Image files (except specific ones needed)
+# Image files
 *.jpg
 *.jpeg
 *.png
-!models/*.caffemodel
-!pts_in_hull.npy
 
-# Keep model files
-!models/colorization_release_v2.caffemodel
-!models/colorization_deploy_v2.prototxt
+# Large model weights — too large for GitHub (download separately, see models/README.md)
+*.caffemodel
+*.pt
