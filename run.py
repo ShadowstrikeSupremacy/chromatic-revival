@@ -17,29 +17,41 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run.py gui                    # Launch the GUI
-  python run.py demo                   # Run the demo script
-  python run.py colorize input.jpg     # Colorize a single image
-  python run.py batch input_folder     # Batch process a folder
+  python run.py gui                              # Launch the GUI
+  python run.py colorize input.jpg              # Colorize a single image
+  python run.py batch input_folder              # Batch process a folder
+  python run.py ocr input.jpg                   # Extract text from an image
+  python run.py ocr input.jpg -o results.json   # Save OCR results to JSON
+  python run.py convert input.png --to jpeg     # Convert PNG to JPEG
+  python run.py convert input.png --to webp -o out.webp
         """
     )
-    
+
     parser.add_argument(
         'mode',
-        choices=['gui', 'demo', 'colorize', 'batch'],
+        choices=['gui', 'demo', 'colorize', 'batch', 'ocr', 'convert'],
         help='Mode to run the system in'
     )
-    
+
     parser.add_argument(
         'input',
         nargs='?',
         help='Input image or folder path'
     )
-    
+
     parser.add_argument(
-        '--output',
-        '-o',
-        help='Output path for colorized images'
+        '--output', '-o',
+        help='Output path for the result file'
+    )
+    parser.add_argument(
+        '--to',
+        choices=['jpeg', 'png', 'bmp', 'tiff', 'webp'],
+        default='jpeg',
+        help='Target format for convert mode (default: jpeg)'
+    )
+    parser.add_argument(
+        '--quality', type=int, default=90, metavar='1-100',
+        help='JPEG/WEBP quality 1-100 (default: 90)'
     )
     
     args = parser.parse_args()
@@ -164,7 +176,63 @@ Examples:
         except Exception as e:
             print(f"✗ Batch processing failed: {e}")
             return 1
-    
+
+    elif args.mode == 'ocr':
+        if not args.input:
+            print("✗ Please provide an input image path"); return 1
+        if not os.path.exists(args.input):
+            print(f"✗ Input file not found: {args.input}"); return 1
+        print(f"Running OCR on: {args.input}")
+        try:
+            import json
+            from src.ocr import StandaloneOcrPipeline
+            pipeline = StandaloneOcrPipeline(use_gpu=False)
+            print("  Enhancing image ...")
+            processed = pipeline.optimize_image_for_ocr(args.input)
+            print("  Running detection + recognition ...")
+            results = pipeline.extract_text(processed)
+            if not results:
+                print("\nNo text detected."); return 0
+            print(f"\nExtracted {len(results)} word(s):\n")
+            for i, item in enumerate(results, 1):
+                print(f"  [{i:02d}]  \"{item['text']}\"  ({item['confidence']:.1%})")
+            if args.output:
+                with open(args.output, 'w', encoding='utf-8') as fh:
+                    json.dump(results, fh, indent=2, ensure_ascii=False)
+                print(f"\n✓ Results saved to: {args.output}")
+        except Exception as e:
+            print(f"✗ OCR failed: {e}"); return 1
+
+    elif args.mode == 'convert':
+        if not args.input:
+            print("✗ Please provide an input image path"); return 1
+        if not os.path.exists(args.input):
+            print(f"✗ Input file not found: {args.input}"); return 1
+        fmt = args.to.upper()
+        ext_map = {'JPEG': '.jpg', 'PNG': '.png', 'BMP': '.bmp', 'TIFF': '.tif', 'WEBP': '.webp'}
+        output_path = args.output or (Path(args.input).stem + ext_map[fmt])
+        print(f"Converting: {args.input}  →  {fmt}  →  {output_path}")
+        try:
+            from PIL import Image as _Image
+            img = _Image.open(args.input)
+            kw: dict = {}
+            if fmt == 'JPEG':
+                if img.mode in ('RGBA', 'LA', 'P'): img = img.convert('RGB')
+                kw = {'quality': args.quality, 'optimize': True}
+            elif fmt == 'PNG':
+                kw = {'optimize': True}
+            elif fmt == 'TIFF':
+                kw = {'compression': 'lzw'}
+            elif fmt == 'WEBP':
+                kw = {'quality': args.quality}
+            img.save(output_path, format=fmt, **kw)
+            ob, cb = os.path.getsize(args.input), os.path.getsize(output_path)
+            def _sz(b): return f"{b/1024:.1f} KB" if b < 1024*1024 else f"{b/1024/1024:.2f} MB"
+            print(f"✓ Saved: {output_path}")
+            print(f"  Original : {_sz(ob)}  →  Converted: {_sz(cb)}  ({cb/ob*100:.1f}%)")
+        except Exception as e:
+            print(f"✗ Conversion failed: {e}"); return 1
+
     return 0
 
 

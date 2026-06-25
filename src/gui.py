@@ -55,6 +55,10 @@ class ModernColorizationGUI:
         self.colorized_image = None
         self.original_path = None
         self.processing = False
+        self.mode_var = tk.StringVar(value='colorize')
+        self.ocr_pipeline = None
+        self._ocr_results: list = []
+        self._ocr_plain_text: str = ""
 
         # Setup GUI
         self._setup_styles()
@@ -87,11 +91,49 @@ class ModernColorizationGUI:
         self.file_path_var = tk.StringVar(value="No file selected")
         self.file_path_label = ttk.Label(self.file_frame, textvariable=self.file_path_var, style='Info.TLabel')
 
+        self.mode_frame = ttk.Frame(self.control_frame)
+        self.mode_label = ttk.Label(self.mode_frame, text="Mode:", style='Header.TLabel')
+        self.radio_colorize = ttk.Radiobutton(
+            self.mode_frame, text="Colorize", variable=self.mode_var,
+            value='colorize', command=self._on_mode_change,
+        )
+        self.radio_ocr = ttk.Radiobutton(
+            self.mode_frame, text="Extract Text (OCR)", variable=self.mode_var,
+            value='ocr', command=self._on_mode_change,
+        )
+        self.radio_convert = ttk.Radiobutton(
+            self.mode_frame, text="Convert Format", variable=self.mode_var,
+            value='convert', command=self._on_mode_change,
+        )
+
+        self.convert_frame = ttk.Frame(self.control_frame)
+        self.convert_to_label = ttk.Label(self.convert_frame, text="Convert to:", style='Header.TLabel')
+        self.convert_format_var = tk.StringVar(value='JPEG')
+        self.format_menu = ttk.Combobox(
+            self.convert_frame, textvariable=self.convert_format_var,
+            values=['JPEG', 'PNG', 'BMP', 'TIFF', 'WEBP'], width=8, state='readonly',
+        )
+        self.format_menu.bind('<<ComboboxSelected>>', self._on_format_change)
+        self.quality_label = ttk.Label(self.convert_frame, text="  Quality:", style='Info.TLabel')
+        self.jpeg_quality_var = tk.IntVar(value=90)
+        self.quality_spin = ttk.Spinbox(
+            self.convert_frame, from_=1, to=100, increment=5,
+            textvariable=self.jpeg_quality_var, width=5,
+        )
+
         self.process_frame = ttk.Frame(self.control_frame)
         self.process_button = ttk.Button(self.process_frame, text="Colorize Image",
-                                         command=self._process_image, style='Success.TButton', state='disabled')
+                                         command=self._dispatch_process, style='Success.TButton', state='disabled')
         self.batch_button = ttk.Button(self.process_frame, text="Batch Process",
                                        command=self._batch_process, style='Warning.TButton')
+        self.save_ocr_button = ttk.Button(
+            self.process_frame, text="Save OCR JSON",
+            command=self._save_ocr_json, style='Primary.TButton', state='disabled',
+        )
+        self.copy_text_button = ttk.Button(
+            self.process_frame, text="Copy Text",
+            command=self._copy_ocr_text, style='Primary.TButton', state='disabled',
+        )
 
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(self.control_frame, variable=self.progress_var, maximum=100)
@@ -122,9 +164,24 @@ class ModernColorizationGUI:
         self.file_label.pack(side='left', padx=(0, 10))
         self.file_button.pack(side='left', padx=(0, 10))
         self.file_path_label.pack(side='left')
+        self.mode_frame.pack(fill='x', pady=(0, 8))
+        self.mode_label.pack(side='left', padx=(0, 10))
+        self.radio_colorize.pack(side='left', padx=(0, 20))
+        self.radio_ocr.pack(side='left', padx=(0, 20))
+        self.radio_convert.pack(side='left')
+        self.convert_frame.pack(fill='x', pady=(0, 8))
+        self.convert_to_label.pack(side='left', padx=(0, 6))
+        self.format_menu.pack(side='left', padx=(0, 8))
+        self.quality_label.pack(side='left')
+        self.quality_spin.pack(side='left')
+        self.convert_frame.pack_forget()
         self.process_frame.pack(fill='x', pady=(0, 10))
         self.process_button.pack(side='left', padx=(0, 10))
-        self.batch_button.pack(side='left')
+        self.batch_button.pack(side='left', padx=(0, 10))
+        self.save_ocr_button.pack(side='left', padx=(0, 5))
+        self.copy_text_button.pack(side='left')
+        self.save_ocr_button.pack_forget()
+        self.copy_text_button.pack_forget()
         self.progress_bar.pack(fill='x', pady=(0, 5))
         self.progress_label.pack()
         self.image_frame.pack(fill='both', expand=True, pady=(0, 20))
@@ -320,6 +377,276 @@ Colorfulness Score: {metrics['colorfulness']:.2f}
 
         # Run processing in a separate thread
         threading.Thread(target=process, daemon=True).start()
+
+    def _on_mode_change(self):
+        """Update UI when mode radio changes."""
+        mode = self.mode_var.get()
+        self.save_ocr_button.pack_forget()
+        self.copy_text_button.pack_forget()
+        self.convert_frame.pack_forget()
+        self.batch_button.config(state='disabled')
+
+        if mode == 'colorize':
+            self.process_button.config(text='Colorize Image')
+            self.colorized_label.config(text='Colorized Image')
+            self.metrics_frame.config(text='Quality Metrics')
+            self.batch_button.config(state='normal')
+        elif mode == 'ocr':
+            self.process_button.config(text='Extract Text')
+            self.colorized_label.config(text='Processed Image')
+            self.metrics_frame.config(text='OCR Results — select and copy text below')
+            self.save_ocr_button.pack(side='left', padx=(0, 5))
+            self.copy_text_button.pack(side='left')
+        elif mode == 'convert':
+            self.process_button.config(text='Convert & Save')
+            self.colorized_label.config(text='Converted Image')
+            self.metrics_frame.config(text='Conversion Details')
+            self.convert_frame.pack(fill='x', pady=(0, 8), before=self.process_frame)
+
+    def _dispatch_process(self):
+        """Route the process button to the active mode."""
+        mode = self.mode_var.get()
+        if mode == 'ocr':
+            self._process_ocr()
+        elif mode == 'convert':
+            self._process_convert()
+        else:
+            self._process_image()
+
+    def _process_ocr(self):
+        """Run docTR OCR pipeline on the loaded image in a daemon thread."""
+        if not self.original_path or not self.original_image:
+            messagebox.showerror("Error", "Please load an image first.")
+            return
+        if self.processing:
+            return
+
+        self.processing = True
+        self.process_button.config(state='disabled')
+        self.progress_var.set(0)
+        self.progress_label.config(text="Starting OCR ...")
+        self.status_var.set("Extracting text ...")
+
+        def run():
+            try:
+                if self.ocr_pipeline is None:
+                    self.root.after(0, lambda: self.progress_label.config(
+                        text="Loading OCR model (first run downloads approx. 100 MB) ..."
+                    ))
+                    try:
+                        from src.ocr import StandaloneOcrPipeline
+                    except ImportError:
+                        from ocr import StandaloneOcrPipeline  # type: ignore
+                    self.ocr_pipeline = StandaloneOcrPipeline(use_gpu=False)
+
+                self.root.after(0, lambda: (
+                    self.progress_var.set(30),
+                    self.progress_label.config(text="Enhancing image ..."),
+                ))
+                processed_img = self.ocr_pipeline.optimize_image_for_ocr(self.original_path)
+
+                self.root.after(0, lambda: (
+                    self.progress_var.set(60),
+                    self.progress_label.config(text="Running detection + recognition ..."),
+                ))
+                results = self.ocr_pipeline.extract_text(processed_img)
+                self._ocr_results = results
+
+                processed_pil = Image.fromarray(processed_img)
+                display_processed = self._resize_image(processed_pil)
+
+                def on_done():
+                    self._update_canvas(self.colorized_canvas, display_processed)
+                    self._display_ocr_results(results)
+                    self.progress_var.set(100)
+                    n = len(results)
+                    msg = f"OCR complete — {n} word(s) detected"
+                    self.progress_label.config(text=msg)
+                    self.status_var.set(msg)
+                    if results:
+                        self.save_ocr_button.config(state='normal')
+                        self.copy_text_button.config(state='normal')
+                    self.process_button.config(state='normal')
+                    self.processing = False
+
+                self.root.after(0, on_done)
+
+            except Exception as exc:
+                logger.error(f"OCR error: {exc}")
+                exc_msg = str(exc)
+
+                def on_error():
+                    messagebox.showerror("OCR Error", f"Text extraction failed:\n{exc_msg}")
+                    self.status_var.set("OCR error — see console for details")
+                    self.progress_label.config(text="Error")
+                    self.process_button.config(state='normal')
+                    self.processing = False
+
+                self.root.after(0, on_error)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _group_into_lines(self, results: list) -> list:
+        """Sort OCR words into reading order and group by line."""
+        if not results:
+            return []
+        avg_h = sum(r['bbox'][3] - r['bbox'][1] for r in results) / len(results)
+        threshold = max(avg_h * 0.6, 4)
+        sorted_words = sorted(results, key=lambda r: (r['bbox'][1] + r['bbox'][3]) / 2)
+        lines: list = [[sorted_words[0]]]
+        for word in sorted_words[1:]:
+            y_center = (word['bbox'][1] + word['bbox'][3]) / 2
+            last_y = (lines[-1][-1]['bbox'][1] + lines[-1][-1]['bbox'][3]) / 2
+            if abs(y_center - last_y) <= threshold:
+                lines[-1].append(word)
+            else:
+                lines.append([word])
+        for line in lines:
+            line.sort(key=lambda r: r['bbox'][0])
+        return lines
+
+    def _display_ocr_results(self, results: list):
+        """Show plain selectable text in the results box in reading order."""
+        self.metrics_text.config(state='normal')
+        self.metrics_text.delete(1.0, tk.END)
+        if not results:
+            self.metrics_text.insert(tk.END, "No text detected in this image.\n")
+            self._ocr_plain_text = ""
+            return
+        lines = self._group_into_lines(results)
+        plain_lines = [' '.join(w['text'] for w in line) for line in lines]
+        plain_text = '\n'.join(plain_lines)
+        self._ocr_plain_text = plain_text
+        self.metrics_text.insert(tk.END, plain_text)
+
+    def _copy_ocr_text(self):
+        """Copy the plain OCR text to the system clipboard."""
+        if not self._ocr_plain_text:
+            messagebox.showinfo("Nothing to Copy", "Run OCR on an image first.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self._ocr_plain_text)
+        self.status_var.set("Text copied to clipboard")
+
+    def _save_ocr_json(self):
+        """Save the last OCR results to a JSON file."""
+        import json
+        if not self._ocr_results:
+            messagebox.showinfo("No Results", "Run OCR on an image first.")
+            return
+        save_path = filedialog.asksaveasfilename(
+            title="Save OCR Results", defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not save_path:
+            return
+        with open(save_path, 'w', encoding='utf-8') as fh:
+            json.dump(self._ocr_results, fh, indent=2, ensure_ascii=False)
+        self.status_var.set(f"Saved: {os.path.basename(save_path)}")
+        messagebox.showinfo("Saved", f"OCR results saved to:\n{save_path}")
+
+    def _on_format_change(self, event=None):
+        """Show/hide JPEG quality control based on chosen format."""
+        if self.convert_format_var.get() == 'JPEG':
+            self.quality_label.pack(side='left')
+            self.quality_spin.pack(side='left')
+        else:
+            self.quality_label.pack_forget()
+            self.quality_spin.pack_forget()
+
+    def _process_convert(self):
+        """Convert the loaded image to a different format and save it."""
+        if not self.original_path or not self.original_image:
+            messagebox.showerror("Error", "Please load an image first.")
+            return
+        if self.processing:
+            return
+
+        fmt = self.convert_format_var.get()
+        ext_map = {'JPEG': '.jpg', 'PNG': '.png', 'BMP': '.bmp', 'TIFF': '.tif', 'WEBP': '.webp'}
+        ext = ext_map[fmt]
+
+        save_path = filedialog.asksaveasfilename(
+            title="Save Converted Image", defaultextension=ext,
+            initialfile=Path(self.original_path).stem + ext,
+            filetypes=[(f"{fmt} files", f"*{ext}"), ("All files", "*.*")],
+        )
+        if not save_path:
+            return
+
+        self.processing = True
+        self.process_button.config(state='disabled')
+        self.progress_var.set(0)
+        self.progress_label.config(text=f"Converting to {fmt} ...")
+        self.status_var.set(f"Converting to {fmt} ...")
+
+        def run():
+            try:
+                img = self.original_image.copy()
+                save_kwargs: dict = {}
+                if fmt == 'JPEG':
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        img = img.convert('RGB')
+                    save_kwargs['quality'] = self.jpeg_quality_var.get()
+                    save_kwargs['optimize'] = True
+                elif fmt == 'PNG':
+                    save_kwargs['optimize'] = True
+                elif fmt == 'TIFF':
+                    save_kwargs['compression'] = 'lzw'
+                elif fmt == 'WEBP':
+                    save_kwargs['quality'] = self.jpeg_quality_var.get()
+
+                img.save(save_path, format=fmt, **save_kwargs)
+                orig_bytes = os.path.getsize(self.original_path)
+                conv_bytes = os.path.getsize(save_path)
+                converted_pil = Image.open(save_path)
+                display_img = self._resize_image(converted_pil)
+
+                def on_done():
+                    self._update_canvas(self.colorized_canvas, display_img)
+                    self._show_conversion_details(
+                        self.original_path, save_path, orig_bytes, conv_bytes, fmt,
+                    )
+                    self.progress_var.set(100)
+                    self.progress_label.config(text=f"Saved: {os.path.basename(save_path)}")
+                    self.status_var.set("Conversion complete")
+                    self.process_button.config(state='normal')
+                    self.processing = False
+
+                self.root.after(0, on_done)
+
+            except Exception as exc:
+                exc_msg = str(exc)
+
+                def on_error():
+                    messagebox.showerror("Conversion Error", f"Failed:\n{exc_msg}")
+                    self.status_var.set("Conversion error")
+                    self.progress_label.config(text="Error")
+                    self.process_button.config(state='normal')
+                    self.processing = False
+
+                self.root.after(0, on_error)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _show_conversion_details(self, orig_path, save_path, orig_bytes, conv_bytes, fmt):
+        """Display file size comparison in the metrics box."""
+        def _sz(b):
+            return f"{b/1024:.1f} KB" if b < 1024 * 1024 else f"{b/1024/1024:.2f} MB"
+
+        ratio = conv_bytes / orig_bytes * 100 if orig_bytes else 0
+        delta = "smaller" if conv_bytes < orig_bytes else "larger"
+        self.metrics_text.config(state='normal')
+        self.metrics_text.delete(1.0, tk.END)
+        self.metrics_text.insert(tk.END, (
+            f"Conversion Details:\n\n"
+            f"  Source   : {os.path.basename(orig_path)}\n"
+            f"  Output   : {os.path.basename(save_path)}\n"
+            f"  Format   : {fmt}\n\n"
+            f"  Original : {_sz(orig_bytes)}\n"
+            f"  Converted: {_sz(conv_bytes)}\n"
+            f"  Ratio    : {ratio:.1f}% of original ({delta})\n"
+        ))
 
     def _batch_process(self):
         """Batch process multiple images."""
