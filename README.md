@@ -1,6 +1,6 @@
 # Chromatic Revival
 ### AI-Powered Image Processing Suite
-
+ 
 A local desktop application combining deep-learning colorization, neural-network OCR, and image format conversion — all running fully offline with no API keys or cloud dependencies.
 
 ---
